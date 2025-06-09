@@ -1,4 +1,4 @@
-import aho_corasick_algorithm
+# import aho_corasick_algorithm
 import boyer_moore_algorithm
 import kmp_algorithm
 import naive_pattern_matching
@@ -84,10 +84,52 @@ def compare_pattern_matching_algorithms(text: str, pattern: str) -> dict:
     return results
 
 
-if __name__ == '__main__':
-    # Przykład użycia
-    text = "abracadabra" * 10
-    pattern = "abra"
-    res = compare_pattern_matching_algorithms(text, pattern)
-    from pprint import pprint
-    pprint(res)
+import matplotlib.pyplot as plt
+
+# 
+text = "abracadabra" * 10
+pattern = "abra"
+res = compare_pattern_matching_algorithms(text, pattern)
+from pprint import pprint
+pprint(res)
+
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+def benchmark_algorithms_for_text_lengths(lengths, pattern="abc"):
+    results = {name: [] for name, _ in ALGOS}
+    
+    for n in lengths:
+        text = ("abcde" * ((n // 5) + 1))[:n]  # sztuczny tekst o długości n
+
+        temp_results = compare_pattern_matching_algorithms(text, pattern)
+
+        for name, res in temp_results.items():
+            if 'error' in res:
+                results[name].append(None)
+            else:
+                results[name].append(res['time_ms'])
+
+    return results
+
+# Wartości długości tekstu (rosnące wykładniczo dla efektu)
+text_lengths = [100, 500, 1000, 2000, 4000, 8000, 16000]
+pattern = "abc"
+
+benchmark_results = benchmark_algorithms_for_text_lengths(text_lengths, pattern)
+
+# Rysuj wykres
+plt.figure(figsize=(12, 6))
+for algo_name, times in benchmark_results.items():
+    if all(t is not None for t in times):  # pomijaj błędne przypadki
+        plt.plot(text_lengths, times, label=algo_name, marker='o')
+
+plt.xlabel("Długość tekstu (n)")
+plt.ylabel("Czas wykonania (ms)")
+# plt.yscale('log')
+plt.title("Złożoność czasowa algorytmów dopasowania wzorca")
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
