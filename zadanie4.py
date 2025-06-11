@@ -1,4 +1,4 @@
-# import aho_corasick_algorithm
+import aho_corasick_algorithm
 import boyer_moore_algorithm
 import kmp_algorithm
 import naive_pattern_matching
@@ -114,7 +114,7 @@ def benchmark_algorithms_for_text_lengths(lengths, pattern="abc"):
     return results
 
 # Wartości długości tekstu (rosnące wykładniczo dla efektu)
-text_lengths = [100, 500, 1000, 2000, 4000, 8000, 16000]
+text_lengths = [1000, 5000, 10000, 20000, 40000, 80000, 160000]
 pattern = "abc"
 
 benchmark_results = benchmark_algorithms_for_text_lengths(text_lengths, pattern)
