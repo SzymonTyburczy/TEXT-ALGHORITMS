@@ -1,78 +1,107 @@
-def build_suffix_array(s):
-    """
-    Construct suffix array for string s in O(n log n) time using doubling algorithm.
-    Returns list SA where SA[i] is the starting index of the i-th smallest suffix.
-    """
-    n = len(s)
-    # initial ranking by character
-    ranks = [ord(c) for c in s]
-    ranks.append(-1)  # sentinel for comparisons
-    sa = list(range(n))
-    tmp = [0] * n
-    k = 1
-    while k <= n:
-        # sort by (rank[i], rank[i+k]) pairs
-        sa.sort(key=lambda i: (ranks[i], ranks[i + k] if i + k < n else -1))
-        # temporary ranking
-        tmp[sa[0]] = 0
-        for i in range(1, n):
-            prev, curr = sa[i-1], sa[i]
-            prev_pair = (ranks[prev], ranks[prev + k] if prev + k < n else -1)
-            curr_pair = (ranks[curr], ranks[curr + k] if curr + k < n else -1)
-            tmp[curr] = tmp[prev] + (prev_pair != curr_pair)
-        # update ranks
-        ranks[:n] = tmp[:]
-        k *= 2
-        # if all ranks are unique, we are done
-        if ranks[sa[-1]] == n - 1:
-            break
-    return sa
+import time
+import tracemalloc
 
-
-def suffix_array_search(text, pattern):
+def search_suffix_array(text: str, pattern: str):
     """
-    Search for all occurrences of pattern in text using suffix array and binary search.
-    Returns list of starting indices where pattern occurs.
+    Przeszukuje `text` za pomocą suffix array + binary search.
+    Zwraca:
+      - matches: lista pozycji startowych dopasowań
+      - metrics: słownik z kluczami:
+          'build_time'           – czas budowy tablicy sufiksów,
+          'search_time'          – czas wyszukiwania (dwa bin-search),
+          'comparisons'          – liczba porównań znaków w fazie wyszukiwania,
+          'memory_bytes'         – zużycie pamięci na strukturę (peak_build – peak_base),
+          'memory_per_char'      – pamięć na znak tekstu,
+          'time_per_pattern_char'– czas wyszukiwania / długość wzorca.
     """
-    sa = build_suffix_array(text)
     n, m = len(text), len(pattern)
-    res = []
+    total_pat_len = m
 
-    # helper to compare pattern with suffix at sa[mid]
-    def is_prefix(pos):
-        # compare text[pos:pos+m] and pattern
-        if pos + m > n:
-            return False
-        return text[pos:pos+m] == pattern
+    # --- Pomiar pamięci przed buildem ---
+    tracemalloc.start()
+    base_current, base_peak = tracemalloc.get_traced_memory()
 
-    # binary search for left bound
+    # --- Budowa suffix array ---
+    t0 = time.perf_counter()
+    sa = sorted(range(n), key=lambda i: text[i:])  # lista indeksów początków sufiksów
+    t1 = time.perf_counter()
+    build_time = t1 - t0
+
+    curr_after_build, peak_after_build = tracemalloc.get_traced_memory()
+
+    # --- Przygotowanie do wyszukiwania ---
+    comparisons = 0
+
+    def _cmp_suffix(i: int) -> int:
+        """
+        Porównuje suffix text[i:] z pattern:
+          - zwraca -1, jeśli suffix < pattern
+          -          0, jeśli prefix=suffix[0:m] == pattern
+          -          1, jeśli suffix > pattern
+        Zwiększa licznik `comparisons` przy każdym porównaniu znak–znak.
+        """
+        nonlocal comparisons
+        for j in range(m):
+            comparisons += 1
+            if i + j >= n:
+                return -1
+            if text[i + j] < pattern[j]:
+                return -1
+            if text[i + j] > pattern[j]:
+                return 1
+        return 0
+
+    # --- Wyszukiwanie (dwa bin-search dla [left, right) w sa) ---
+    t2 = time.perf_counter()
+
+    # lewy kraniec przedziału dopasowań
     lo, hi = 0, n
     while lo < hi:
         mid = (lo + hi) // 2
-        if text[sa[mid]:sa[mid] + m] < pattern:
+        if _cmp_suffix(sa[mid]) < 0:
             lo = mid + 1
         else:
             hi = mid
     left = lo
 
-    # binary search for right bound
+    # prawy kraniec
     lo, hi = 0, n
     while lo < hi:
         mid = (lo + hi) // 2
-        if text[sa[mid]:sa[mid] + m] <= pattern:
+        if _cmp_suffix(sa[mid]) <= 0:
             lo = mid + 1
         else:
             hi = mid
     right = lo
 
-    # collect results
-    for i in range(left, right):
-        res.append(sa[i])
-    return sorted(res)
+    matches = sa[left:right]
 
-# Example usage:
+    t3 = time.perf_counter()
+    search_time = t3 - t2
+
+    # --- Pomiar pamięci po wszystkim ---
+    curr_final, peak_final = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+
+    mem_used = peak_after_build - base_peak
+    mem_per_char = mem_used / n if n else 0
+    time_per_pat_char = search_time / total_pat_len if total_pat_len else 0
+
+    metrics = {
+        'build_time': build_time,
+        'search_time': search_time,
+        'comparisons': comparisons,
+        'memory_bytes': mem_used,
+        'memory_per_char': mem_per_char,
+        'time_per_pattern_char': time_per_pat_char
+    }
+
+    return matches, metrics
+
+# ---- Przykład użycia ----
 if __name__ == "__main__":
-    text = "banana"
-    pattern = "ana"
-    positions = suffix_array_search(text, pattern)
-    print(f"Pattern '{pattern}' found at positions: {positions}")
+    txt = "abracadabra"
+    pat = "abra"
+    hits, m = search_suffix_array(txt, pat)
+    print("Suffix Array → Pozycje:", hits)
+    print("                Metryki:", m)

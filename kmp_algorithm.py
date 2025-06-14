@@ -1,71 +1,94 @@
-def compute_lps_array(pattern: str) -> list[int]:
+import time
+import tracemalloc
+
+def search_kmp(text: str, pattern: str):
     """
-    Compute the Longest Proper Prefix which is also Suffix array for KMP algorithm.
-
-    Args:
-        pattern: The pattern string
-
-    Returns:
-        The LPS array
+    KMP: najpierw liczymy tablicę LPS (longest proper prefix-suffix),
+    potem jednoprzebiegowe przeszukiwanie.
+    Zwraca:
+      - matches: lista pozycji startowych
+      - metrics: słownik z kluczami:
+          'build_time', 'search_time',
+          'comparisons', 'memory_bytes', 'memory_per_char',
+          'time_per_pattern_char'
     """
-    # TODO: Implement the Longest Prefix Suffix (LPS) array computation
-    # The LPS array helps in determining how many characters to skip when a mismatch occurs
-    # For each position i, compute the length of the longest proper prefix of pattern[0...i]
-    # that is also a suffix of pattern[0...i]
-    # Hint: Use the information from previously computed values to avoid redundant comparisons
+    total_pat_len = len(pattern)
 
-    lps = [0] * len(pattern)
+    # --- START POMIARU PAMIĘCI ---
+    tracemalloc.start()
+    base_current, base_peak = tracemalloc.get_traced_memory()
+
+    # --- BUDOWA (liczenie LPS) ---
+    t0 = time.perf_counter()
+    # przygotowanie LPS
+    lps = [0] * total_pat_len
     length = 0
     i = 1
-    while i < len(pattern):
+    while i < total_pat_len:
         if pattern[i] == pattern[length]:
             length += 1
             lps[i] = length
             i += 1
         else:
-            if length != 0:
+            if length:
                 length = lps[length - 1]
             else:
                 lps[i] = 0
                 i += 1
-    return lps
+    t1 = time.perf_counter()
+    build_time = t1 - t0
 
+    curr_after_build, peak_after_build = tracemalloc.get_traced_memory()
 
-def kmp_pattern_match(text: str, pattern: str) -> list[int]:
-    """
-    Implementation of the Knuth-Morris-Pratt pattern matching algorithm.
+    # --- PRZESZUKIWANIE + LICZNIK PORÓWNAŃ ---
+    comparisons = 0
+    matches = []
+    n, m = len(text), total_pat_len
+    t2 = time.perf_counter()
 
-    Args:
-        text: The text to search in
-        pattern: The pattern to search for
-
-    Returns:
-        A list of starting positions (0-indexed) where the pattern was found in the text
-    """
-    # TODO: Implement the KMP string matching algorithm
-    # 1. Preprocess the pattern to compute the LPS array
-    # 2. Use the LPS array to determine how much to shift the pattern when a mismatch occurs
-    # 3. This avoids redundant comparisons by using information about previous matches
-    # 4. Return all positions where the pattern is found in the text
-
-    positions = []
-    n = len(text)
-    m = len(pattern)
-    if m == 0:
-        return positions
-    lps = compute_lps_array(pattern)
-    i = 0
-    j = 0
-    while i < n:
-        if text[i] == pattern[j]:
-            i += 1
-            j += 1
-        if j == m:
-            positions.append(i - j)
-            j = lps[j - 1]
-        elif i < n and text[i] != pattern[j]:
-            if j != 0:
-                j = lps[j - 1]
+    ti = 0  # indeks w text
+    pj = 0  # indeks w pattern
+    while ti < n:
+        comparisons += 1
+        if text[ti] == pattern[pj]:
+            ti += 1
+            pj += 1
+            if pj == m:
+                matches.append(ti - pj)
+                pj = lps[pj - 1]
+        else:
+            if pj:
+                pj = lps[pj - 1]
             else:
-                i += 1
-    return positions
+                ti += 1
+
+    t3 = time.perf_counter()
+    search_time = t3 - t2
+
+    # --- KONIEC POMIARU PAMIĘCI ---
+    curr_final, peak_final = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+
+    # --- OBLICZENIE METRYK ---
+    mem_used = peak_after_build - base_peak
+    mem_per_char = mem_used / n if n else 0
+    time_per_pat_char = search_time / total_pat_len if total_pat_len else 0
+
+    metrics = {
+        'build_time': build_time,
+        'search_time': search_time,
+        'comparisons': comparisons,
+        'memory_bytes': mem_used,
+        'memory_per_char': mem_per_char,
+        'time_per_pattern_char': time_per_pat_char
+    }
+
+    return matches, metrics
+
+# ---- PRZYKŁAD UŻYCIA ----
+if __name__ == "__main__":
+    txt = "abracadabra"
+    pat = "abra"
+    hits, m = search_kmp(txt, pat)
+    print("Pozycje:", hits)
+    print("Metryki:", m)

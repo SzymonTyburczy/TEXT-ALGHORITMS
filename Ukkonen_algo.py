@@ -1,199 +1,187 @@
-class Node:
-    def __init__(self, start=-1, end=-1):
-        self.children = {}
+import time
+import tracemalloc
+
+class _SuffixTreeNode:
+    __slots__ = ('children', 'suffix_link', 'start', 'end', 'index')
+    def __init__(self, start=None, end=None):
+        self.children = {}          # map from character to node
         self.suffix_link = None
-        self.start = start
-        self.end = end
-        self.suffix_index = -1
+        self.start = start          # edge start index
+        self.end = end              # edge end index (object with .value for leaves)
+        self.index = -1             # for leaves: the suffix start position
 
+class _End:
+    __slots__ = ('value',)
+    def __init__(self, value):
+        self.value = value
 
-class SuffixTree:
-    def __init__(self, text: str):
-        """
-        Budowanie drzewa sufiksów dla zadanego tekstu przy użyciu algorytmu Ukkonena.
-        Do tekstu dodawany jest znak '$' kończący.
-        """
-        self.text = text + "$"
-        self.size = len(self.text)
-        self.root = Node(-1, -1)
-        self.root.suffix_link = self.root
-        # Aktywne wskaźniki wykorzystywane przez algorytm
-        self.active_node = self.root
-        self.active_edge = 0  # indeks w tekście, który oznacza początek aktywnej krawędzi
-        self.active_length = 0
-        self.remaining = 0  # liczba oczekujących rozszerzeń
-        self.last_new_node = None  # ostatni utworzony węzeł wewnętrzny, który oczekuje ustawienia łącza sufiksowego
-        self.leaf_end = -1  # globalny wskaźnik końcowy dla wszystkich liści
-        self.build_tree()
-        self._set_suffix_index(self.root, 0)
+def _build_ukkonen_tree(text: str):
+    """
+    Ukkonen's online algorithm for suffix-tree in O(n).
+    Returns root of the tree.
+    """
+    root = _SuffixTreeNode()
+    root.suffix_link = root
+    active_node = root
+    active_edge = -1
+    active_length = 0
+    remainder = 0
+    end = _End(-1)
 
-    def edge_length(self, node: Node, current_pos: int) -> int:
-        """
-        Oblicza długość etykiety krawędzi wychodzącej z danego węzła.
-        Dla liścia końcowy indeks to aktualna pozycja +1 (technika wskaźnika końcowego).
-        """
-        return min(node.end, current_pos + 1) - node.start
+    def edge_length(node):
+        return node.end.value - node.start + 1
 
-    def build_tree(self):
-        """
-        Buduje drzewo sufiksów przy użyciu algorytmu Ukkonena z zastosowaniem:
-         - Techniki skip/count
-         - Reguły łącza sufiksowego
-         - Techniki wskaźnika końcowego
-        Złożoność czasowa wynosi O(n) w średnim przypadku.
-        """
-        for pos in range(self.size):
-            self._extend_suffix_tree(pos)
-
-    def _extend_suffix_tree(self, pos: int):
-        """
-        Rozszerza drzewo sufiksów o znak na pozycji pos.
-        """
-        self.leaf_end = pos  # aktualizujemy globalny wskaźnik końcowy dla liści
-        self.remaining += 1  # nowy sufiks musi zostać dodany
-        self.last_new_node = None
-
-        while self.remaining > 0:
-            if self.active_length == 0:
-                self.active_edge = pos  # nowa aktywna krawędź
-            curr_char = self.text[self.active_edge]
-            # Jeśli aktualny węzeł nie posiada dziecka zaczynającego się od curr_char, to:
-            if curr_char not in self.active_node.children:
-                # Utwórz liść (krawędź od pos do końca tekstu)
-                leaf = Node(pos, self.size)
-                self.active_node.children[curr_char] = leaf
-
-                # Jeśli istniał ostatni węzeł wewnętrzny oczekujący ustawienia łącza, ustaw je na active_node
-                if self.last_new_node is not None:
-                    self.last_new_node.suffix_link = self.active_node
-                    self.last_new_node = None
+    for pos, ch in enumerate(text):
+        end.value = pos
+        remainder += 1
+        last_new_node = None
+        while remainder > 0:
+            if active_length == 0:
+                active_edge = pos
+            edge_char = text[active_edge]
+            # if no edge starting with edge_char
+            if edge_char not in active_node.children:
+                # new leaf
+                leaf = _SuffixTreeNode(pos, end)
+                leaf.index = pos - remainder + 1
+                active_node.children[edge_char] = leaf
+                if last_new_node:
+                    last_new_node.suffix_link = active_node
+                    last_new_node = None
             else:
-                # Aktywna krawędź już istnieje. Pobierz dziecko.
-                next_node = self.active_node.children[curr_char]
-                edge_len = self.edge_length(next_node, pos)
-                # **Technika skip/count:** Jeśli długość aktywnego ciągu jest większa lub równa długości etykiety krawędzi,
-                # „przeskocz” całą krawędź.
-                if self.active_length >= edge_len:
-                    self.active_edge += edge_len
-                    self.active_length -= edge_len
-                    self.active_node = next_node
+                next_node = active_node.children[edge_char]
+                if active_length >= edge_length(next_node):
+                    active_edge += edge_length(next_node)
+                    active_length -= edge_length(next_node)
+                    active_node = next_node
                     continue
-                # Jeżeli kolejny znak na krawędzi jest taki sam jak znak na pozycji pos,
-                # inkrementuj active_length (rozszerzenie jest już zawarte w drzewie)
-                if self.text[next_node.start + self.active_length] == self.text[pos]:
-                    if self.last_new_node is not None and self.active_node != self.root:
-                        self.last_new_node.suffix_link = self.active_node
-                        self.last_new_node = None
-                    self.active_length += 1
-                    break  # następne rozszerzenie rozpoczniemy z następnym znakiem
-                # W przeciwnym razie – występuje rozłam (split) krawędzi:
-                split_end = next_node.start + self.active_length
-                split_node = Node(next_node.start, split_end)
-                self.active_node.children[curr_char] = split_node
-                # Nowy liść dla bieżącego znaku
-                leaf = Node(pos, self.size)
-                split_node.children[self.text[pos]] = leaf
-                # Aktualizujemy istniejący węzeł: przesuwamy początek krawędzi
-                next_node.start += self.active_length
-                split_node.children[self.text[next_node.start]] = next_node
+                # character on edge
+                if text[next_node.start + active_length] == ch:
+                    active_length += 1
+                    if last_new_node:
+                        last_new_node.suffix_link = active_node
+                        last_new_node = None
+                    break
+                # split edge
+                split_end = next_node.start + active_length - 1
+                split = _SuffixTreeNode(next_node.start, _End(split_end))
+                active_node.children[edge_char] = split
+                leaf = _SuffixTreeNode(pos, end)
+                leaf.index = pos - remainder + 1
+                split.children[ch] = leaf
+                next_node.start = split_end + 1
+                split.children[text[next_node.start]] = next_node
+                if last_new_node:
+                    last_new_node.suffix_link = split
+                last_new_node = split
+            remainder -= 1
+            if active_node is root and active_length > 0:
+                active_length -= 1
+                active_edge = pos - remainder + 1
+            else:
+                active_node = active_node.suffix_link if active_node.suffix_link else root
+    return root
 
-                # Ustaw łącze sufiksowe węzła wewnętrznego, jeśli jest to wymagane
-                if self.last_new_node is not None:
-                    self.last_new_node.suffix_link = split_node
-                self.last_new_node = split_node
+def search_ukkonen(text: str, pattern: str):
+    """
+    Wyszukiwanie wzorca w tekście za pomocą suffix tree zbudowanego algorytmem Ukkonena.
+    Zwraca:
+      - matches: lista pozycji startowych wystąpień
+      - metrics: słownik jak w pozostałych implementacjach
+    """
+    n, m = len(text), len(pattern)
+    total_pat_len = m
 
-            self.remaining -= 1
+    # --- Pomiar pamięci przed budową ---
+    tracemalloc.start()
+    base_current, base_peak = tracemalloc.get_traced_memory()
 
-            # Aktualizujemy aktywne wskaźniki
-            if self.active_node == self.root and self.active_length > 0:
-                self.active_length -= 1
-                self.active_edge = pos - self.remaining + 1
-            elif self.active_node != self.root:
-                self.active_node = self.active_node.suffix_link if self.active_node.suffix_link is not None else self.root
+    # --- Budowa drzewa ---
+    t0 = time.perf_counter()
+    root = _build_ukkonen_tree(text)
+    t1 = time.perf_counter()
+    build_time = t1 - t0
 
-    def _set_suffix_index(self, node: Node, label_length: int):
-        """
-        Przechodzi przez drzewo sufiksów (DFS) i ustawia końcowy indeks sufiksu dla liści.
-        Dzięki temu mamy bezpośrednio zapamiętane pozycje wystąpień sufiksów.
-        """
-        if len(node.children) == 0:
-            node.suffix_index = self.size - label_length
-            return
-        for child in node.children.values():
-            edge_len = (min(child.end, self.size) - child.start)
-            self._set_suffix_index(child, label_length + edge_len)
+    curr_after_build, peak_after_build = tracemalloc.get_traced_memory()
 
-    def find_pattern(self, pattern: str) -> list:
-        """
-        Wyszukuje wszystkie wystąpienia wzorca w tekście przy pomocy drzewa sufiksów.
+    # --- Przeszukiwanie w drzewie ---
+    comparisons = 0
+    t2 = time.perf_counter()
+    node = root
+    i = 0
+    # schodzimy po krawędziach zgodnie ze wzorcem
+    while i < m:
+        ch = pattern[i]
+        if ch not in node.children:
+            comparisons += 1
+            # brak krawędzi → brak dopasowania
+            search_time = time.perf_counter() - t2
+            mem_used = peak_after_build - base_peak
+            metrics = {
+                'build_time': build_time,
+                'search_time': search_time,
+                'comparisons': comparisons,
+                'memory_bytes': mem_used,
+                'memory_per_char': mem_used / n if n else 0,
+                'time_per_pattern_char': search_time / total_pat_len if total_pat_len else 0
+            }
+            return [], metrics
+        edge = node.children[ch]
+        length = edge.end.value - edge.start + 1
+        # porównania znak po znaku na krawędzi
+        for k in range(length):
+            comparisons += 1
+            if i + k >= m or text[edge.start + k] != pattern[i + k]:
+                search_time = time.perf_counter() - t2
+                mem_used = peak_after_build - base_peak
+                metrics = {
+                    'build_time': build_time,
+                    'search_time': search_time,
+                    'comparisons': comparisons,
+                    'memory_bytes': mem_used,
+                    'memory_per_char': mem_used / n if n else 0,
+                    'time_per_pattern_char': search_time / total_pat_len if total_pat_len else 0
+                }
+                return [], metrics
+        # całe segment pasuje → schodzimy
+        node = edge
+        i += length
 
-        Zasada działania:
-         - Przechodzimy drzewo zgodnie z etykietami krawędzi i sprawdzamy czy wzorzec pokrywa się z etykietą.
-         - Jeśli uda się dopasować cały wzorzec, zbieramy wszystkie indeksy sufiksów (liść) w poddrzewie.
+    # jeśli wzorzec w drzewie, zbieramy wszystkie sufiksy w poddrzewie
+    matches = []
+    stack = [node]
+    while stack:
+        u = stack.pop()
+        if u.index >= 0:
+            matches.append(u.index)
+        for child in u.children.values():
+            stack.append(child)
+    t3 = time.perf_counter()
+    search_time = t3 - t2
 
-        Zwraca:
-         - Listę pozycji, gdzie wzorzec występuje w tekście.
-        """
-        current = self.root
-        i = 0
+    # --- Pomiar pamięci po wszystkim ---
+    curr_final, peak_final = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
 
-        while i < len(pattern):
-            char = pattern[i]
-            if char not in current.children:
-                return []  # wzorzec nie występuje
-            child = current.children[char]
-            edge_label = self.text[child.start: min(child.end, self.size)]
-            j = 0
-            # Porównujemy znak po znaku etykietę krawędzi z częścią wzorca
-            while j < len(edge_label) and i < len(pattern):
-                if pattern[i] != edge_label[j]:
-                    return []
-                i += 1
-                j += 1
-            current = child
+    mem_used = peak_after_build - base_peak
+    mem_per_char = mem_used / n if n else 0
+    time_per_pat_char = search_time / total_pat_len if total_pat_len else 0
 
-        # Po dopasowaniu wzorca zbieramy wszystkie indeksy sufiksów z liści w poddrzewie
-        result = []
-        self._collect_suffix_indices(current, result)
-        return sorted(result)
+    metrics = {
+        'build_time': build_time,
+        'search_time': search_time,
+        'comparisons': comparisons,
+        'memory_bytes': mem_used,
+        'memory_per_char': mem_per_char,
+        'time_per_pattern_char': time_per_pat_char
+    }
 
-    def _collect_suffix_indices(self, node: Node, result: list):
-        """
-        Rekurencyjnie zbiera sufiks_indexy z liści (wystąpienia wzorca).
-        """
-        if node.suffix_index != -1:
-            result.append(node.suffix_index)
-            return
-        for child in node.children.values():
-            self._collect_suffix_indices(child, result)
+    return sorted(matches), metrics
 
-
-# Przykładowe testy
-
+# ---- Przykład użycia ----
 if __name__ == "__main__":
-    def test_case(text, pattern, expected):
-        tree = SuffixTree(text)
-        result = tree.find_pattern(pattern)
-        print(f"Test: '{pattern}' in '{text}'")
-        print(f"Expected: {expected}, Got: {result}")
-        print("✅ OK\n" if sorted(result) == sorted(expected) else "❌ FAIL\n")
-
-    test_case("banana", "ana", [1, 3])
-    test_case("banana", "ban", [0])
-    test_case("banana", "nana", [2])
-    test_case("banana", "a", [1, 3, 5])
-    test_case("banana", "x", [])
-    test_case("mississippi", "issi", [1, 4])
-    test_case("aaaaa", "aa", [0, 1, 2, 3])
-    test_case("abcd", "d", [3])
-    test_case("abcd", "abcde", [])
-    test_case("algorytmytekstowetosuperprzedmiot", "tekst", [9])
-    test_case("algorytmytekstowetosuperprzedmiot", "przedmiot", [24])
-    test_case("algorytmytekstowetosuperprzedmiot", "hokuspokus", [])
-    test_case("algorytmytekstowetosuperprzedmiot", "teksty", [])
-    test_case("algorytmytekstowetosuperprzedmiot", "algorytmytekstowetosuperprzedmiot", [0])
-    test_case("algorytmytekstowetosuperprzedmiot", "", [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33])
-
-
-
-
+    txt = "bananabanaba$"
+    pat = "ana"
+    hits, m = search_ukkonen(txt, pat)
+    print("Ukkonen → Pozycje:", hits)
+    print("          Metryki:", m)

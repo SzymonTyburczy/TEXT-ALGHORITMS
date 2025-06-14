@@ -1,70 +1,87 @@
-def compute_z_array(s: str) -> list[int]:
+import time
+import tracemalloc
+
+def search_z(text: str, pattern: str):
     """
-    Compute the Z array for a string.
-
-    The Z array Z[i] gives the length of the longest substring starting at position i
-    that is also a prefix of the string.
-
-    Args:
-        s: The input string
-
-    Returns:
-        The Z array for the string
+    Z-algorytm: łączy pattern+'$'+text, buduje tablicę Z,
+    dopasowania tam, gdzie Z[i] == len(pattern).
+    Zwraca:
+      - matches: lista pozycji startowych
+      - metrics: słownik z kluczami:
+          'build_time', 'search_time', 'comparisons',
+          'memory_bytes', 'memory_per_char', 'time_per_pattern_char'
     """
-    # TODO: Implement the Z-array computation
-    # For each position i:
-    # - Calculate the length of the longest substring starting at i that is also a prefix of s
-    # - Use the Z-box technique to avoid redundant character comparisons
-    # - Handle the cases when i is inside or outside the current Z-box
+    m = len(pattern)
+    n = len(text)
+    total_pat_len = m
 
-    n = len(s)
-    Z = [0] * n
-    left, right = 0, 0
-    for i in range(1, n):
-        if i > right:
-            left = right = i
-            while right < n and s[right - left] == s[right]:
-                right += 1
-            Z[i] = right - left
-            right -= 1
+    tracemalloc.start()
+    base_current, base_peak = tracemalloc.get_traced_memory()
+
+    # brak preprocessing → build_time = 0
+    build_time = 0.0
+    curr_after_build, peak_after_build = tracemalloc.get_traced_memory()
+
+    comparisons = 0
+    matches = []
+    t2 = time.perf_counter()
+
+    s = pattern + '$' + text
+    L = len(s)
+    Z = [0] * L
+    l = r = 0
+    for i in range(1, L):
+        if i > r:
+            l = r = i
+            while r < L:
+                comparisons += 1
+                if s[r - l] == s[r]:
+                    r += 1
+                else:
+                    break
+            Z[i] = r - l
+            r -= 1
         else:
-            k = i - left
-            if Z[k] < right - i + 1:
+            k = i - l
+            if Z[k] < r - i + 1:
                 Z[i] = Z[k]
             else:
-                left = i
-                while right < n and s[right - left] == s[right]:
-                    right += 1
-                Z[i] = right - left
-                right -= 1
-    return Z
-
-
-def z_pattern_match(text: str, pattern: str) -> list[int]:
-    """
-    Use the Z algorithm to find all occurrences of a pattern in a text.
-
-    Args:
-        text: The text to search in
-        pattern: The pattern to search for
-
-    Returns:
-        A list of starting positions (0-indexed) where the pattern was found in the text
-    """
-    # TODO: Implement pattern matching using the Z algorithm
-    # 1. Create a concatenated string: pattern + special_character + text
-    # 2. Compute the Z array for this concatenated string
-    # 3. Find positions where Z[i] equals the pattern length
-    # 4. Convert these positions in the concatenated string to positions in the original text
-    # 5. Return all positions where the pattern is found in the text
-
-    if not pattern:
-        return []
-    concatenated = pattern + "$" + text
-    Z = compute_z_array(concatenated)
-    positions = []
-    m = len(pattern)
-    for i in range(len(Z)):
+                l = i
+                while r < L:
+                    comparisons += 1
+                    if s[r - l] == s[r]:
+                        r += 1
+                    else:
+                        break
+                Z[i] = r - l
+                r -= 1
         if Z[i] == m:
-            positions.append(i - m - 1)
-    return positions
+            matches.append(i - m - 1)
+
+    t3 = time.perf_counter()
+    search_time = t3 - t2
+
+    curr_final, peak_final = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+
+    mem_used = peak_after_build - base_peak
+    mem_per_char = mem_used / n if n else 0
+    time_per_pat_char = search_time / total_pat_len if total_pat_len else 0
+
+    metrics = {
+        'build_time': build_time,
+        'search_time': search_time,
+        'comparisons': comparisons,
+        'memory_bytes': mem_used,
+        'memory_per_char': mem_per_char,
+        'time_per_pattern_char': time_per_pat_char
+    }
+    return matches, metrics
+
+# ---- PRZYKŁADOWE UŻYCIE ----
+if __name__ == "__main__":
+    txt = "abracadabra"
+    pat = "abra"
+    hits, m = search_z(txt, pat)
+    print("Z-algorytm → Pozycje:", hits)
+    print("             Metryki:", m)
